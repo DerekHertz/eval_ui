@@ -1,9 +1,16 @@
-from io import StringIO
 import streamlit as st
-import csv
+import numpy as np
+from typing import Union
 
-import terray_db.log.models as log
+import ..._db.log.models as log
+from ..._core.db import exp
+from ..._notebooks.utils.decoding_updates_ultra import (
+    get_recent_experiments,
+    get_chips_for_lg,
+    get_chip_libaries,
+)
 
+SCOPES = [f"TIGERD{x}" for x in range(1, 13)] + [None]
 
 # question dict for downstream formatting
 MICROSCOPE_QUESTIONS_DICT = {
@@ -55,24 +62,27 @@ REG_QUESTIONS_DICT = {
     "photometry_updated": "Are all the available photometries registered/updated?",
 }
 
+# function for yes and no radio button
+def yes_no_radio_button(question: str) -> Union[bool, None]:
+    """Create yes/no radio button and return True/False or None if neither selected"""
+    radio_response = st.radio(question, ["None", "Yes 🤩", "No 😔"])
 
-# functions for yes and no check boxes
-def yes(question_num):
-    checkbox_yes = st.checkbox("Yes 🤩", key=f"yes-{question_num}")
-    return checkbox_yes
+    if radio_response is None:
+        st.warning("Please select an option.")
+        return None
 
-
-def no(question_num):
-    checkbox_no = st.checkbox("No 😔", key=f"no-{question_num}")
-    return checkbox_no
+    if radio_response == "Yes 🤩":
+        st.write("🫡")
+        return True
+    elif radio_response == "No 😔":
+        st.write("🫨")
+        return False
+    elif radio_response == "None":
+        return None
 
 
 # main function to start collecting data into dict and display questions with check boxes using the yes/no functions
 def collect_data():
-
-    # counter for "yes" and "no" check box to have unique key args
-    yes_counter = 0
-    no_counter = 0
 
     # empty list for data collection
     data = {
@@ -84,110 +94,48 @@ def collect_data():
     # microscope section
     st.header("Microscope: ")
 
-    for m_question in MICROSCOPE_QUESTIONS_DICT:
-
-        question = st.write(MICROSCOPE_QUESTIONS_DICT[m_question])
-
-        if yes(yes_counter):
-            data["questions"][m_question] = True
-            st.write("Yay :)")
-
-        elif no(no_counter):
-            data["questions"][m_question] = False
-            st.write("Awe :(")
-
-        yes_counter += 1
-        no_counter += 1
+    for name, text in MICROSCOPE_QUESTIONS_DICT.items():
+        response = yes_no_radio_button(text)
+        if response is not None:
+            data["questions"][name] = response
 
     # nacho plate section
     st.header("Nacho Plates: ")
 
-    for n_question in NACHO_QUESTIONS_DICT:
-
-        question = st.write(NACHO_QUESTIONS_DICT[n_question])
-
-        if yes(yes_counter):
-            data["questions"][n_question] = True
-            st.write("Yay :)")
-
-        elif no(no_counter):
-            data["questions"][n_question] = False
-            st.write("Awe :(")
-
-        yes_counter += 1
-        no_counter += 1
+    for name, text in NACHO_QUESTIONS_DICT.items():
+        response = yes_no_radio_button(text)
+        if response is not None:
+            data["questions"][name] = response
 
     # flow cell section
     st.header("Flow cell: ")
 
-    for f_question in FLOW_CELL_QUESTIONS_DICT:
-
-        question = st.write(FLOW_CELL_QUESTIONS_DICT[f_question])
-
-        if yes(yes_counter):
-            data["questions"][f_question] = True
-            st.write("Yay :)")
-
-        elif no(no_counter):
-            data["questions"][f_question] = False
-            st.write("Awe :(")
-
-        yes_counter += 1
-        no_counter += 1
+    for name, text in FLOW_CELL_QUESTIONS_DICT.items():
+        response = yes_no_radio_button(text)
+        if response is not None:
+            data["questions"][name] = response
 
     # leaks sections
     st.header("Leaks: ")
 
-    for l_question in LEAK_QUESTIONS_DICT:
-
-        question = st.write(LEAK_QUESTIONS_DICT[l_question])
-
-        if yes(yes_counter):
-            data["questions"][l_question] = True
-            st.write("Yay :)")
-
-        elif no(no_counter):
-            data["questions"][l_question] = False
-            st.write("Awe :(")
-
-        yes_counter += 1
-        no_counter += 1
+    for name, text in LEAK_QUESTIONS_DICT.items():
+        response = yes_no_radio_button(text)
+        if response is not None:
+            data["questions"][name] = response
 
     # registration section
     st.header("Registration: ")
 
-    for r_question in REG_QUESTIONS_DICT:
-
-        question = st.write(REG_QUESTIONS_DICT[r_question])
-
-        if yes(yes_counter):
-            data["questions"][r_question] = True
-            st.write("Yay :)")
-
-        elif no(no_counter):
-            data["questions"][r_question] = False
-            st.write("Awe :(")
-
-        yes_counter += 1
-        no_counter += 1
+    for name, text in REG_QUESTIONS_DICT.items():
+        response = yes_no_radio_button(text)
+        if response is not None:
+            data["questions"][name] = response
 
     st.header("Additional Info")
     general_notes = st.text_area("General Notes: ")
     data["notes"] = general_notes
 
     return data
-
-
-# format data dict to take in abreviated question and user answer as csv formatted string
-def format_data(data):
-
-    csv_data = StringIO()
-    writer = csv.writer(csv_data)
-
-    for key, value in data.items():
-        writer.writerow([key, value])
-
-    return csv_data.getvalue()
 
 
 # ============================================= UI =============================================
@@ -211,50 +159,27 @@ def main():
         st.error("Please enter only one ID letter")
 
     # dropdown for microscope name
-    # get working with decodeing updates ultra to pull microscope names?
     microscope = st.selectbox(
-        "Please select the microscope number: ",
-        ("D01", "D02", "D03", "D04", "D05", "D06", "D07", "D09", "D10", "D11", "D12"),
-        # index=None,
-        # placeholder="Choose an option"
+        "Please select the microscope number: ", SCOPES, index=len(SCOPES) - 1
     )
 
     # display microscope name
     st.write(microscope)
 
-    # prompt for experiment ids
-    # get working with decoding updates ultra to pull all lgs
-    experiment_id = st.text_input(
-        "Please enter each experiment ID separated by a comma ( ,): "
-    )
+    lg_id_options = get_recent_experiments()
+    # prompt for experiment ids using get_recent_experiments() function
+    experiment_id = st.multiselect("Please select each experiment ID: ", lg_id_options)
 
-    # try casting nums after split to integers for experiment id validation, if not int provide invalid id
-    temp_list = []
-    for num in experiment_id.split(","):
-        num_stripped = num.strip()
+    # Get the chips associated to lg
+    chip_list = [get_chips_for_lg(exp_lgid) for exp_lgid in experiment_id]
+    chip_list = [i for x in chip_list for i in x]
+    chip_to_library = get_chip_libaries(chip_list)
+    libraries = set(chip_to_library.values())
 
-        try:
-            temp_num = int(num_stripped)
-            temp_list.append(temp_num)
-            # check if experiment id occurs more than once in temp list
-            if temp_list.count(temp_num) > 1:
-                st.error(
-                    f"Invalid experiment ID: {num}. Please only enter unique experiment IDs."
-                )
-            elif len(num_stripped) != 7:
-                st.error(
-                    f"Invalid experiment ID: {num}. Please enter an ID of correct format (300XXXX)."
-                )
-        except ValueError:
-            if experiment_id:
-                st.error(
-                    f" Invalid experiment ID: {num}. Please enter only integers separated by a comma (,)."
-                )
-
-        experiment_id_list = temp_list
-
-    # display experiment ids
-    st.write(experiment_id_list)
+    # display a dictionary of chip names associated to given experiment id and subset names
+    if experiment_id:
+        st.write("Library/libraries: ")
+        st.write(chip_to_library)
 
     # prompt for who is doing the eval
     reviewer = st.text_input("Please write who is reviewing the setup: ")
@@ -273,6 +198,7 @@ def main():
         [
             "Microsoft/computer update",
             "Camera acquisition error",
+            "Out of focus",
             "Cracked glass",
             "Network loss",
             "Power outage",
@@ -293,16 +219,12 @@ def main():
     data["ranger"] = ranger
     data["flow cell top"] = flow_cell_top.upper()
     data["microscope"] = microscope
-    data["experiment_id"] = experiment_id_list
+    data["experiment_id"] = experiment_id
     data["reviewer"] = reviewer.title()
     data["date"] = date.isoformat()
     data["stalls"]["num_stalls"] = run_stall
     data["stalls"]["stall_reason"] = stall_reason
-
-    data_string = format_data(data)
-
-    # temp for debugging - remove later
-    st.write(data)
+    data["stalls"]["other"] = other_stall
 
     # conditional to check if experiment ids were entered
     if not experiment_id:
